@@ -324,6 +324,24 @@ def evaluate(args, model, tokenizer, prefix=""):
                     inputs.update(
                         {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
                     )
+            if args.export_onnx:
+                print("Exporting to ONNX")
+                dummy_input = torch.ones((1, 384), dtype=torch.int64)
+                torch.onnx.export(model,
+                    (dummy_input, dummy_input, dummy_input),
+                    "model.onnx",
+                    verbose=True,
+                    input_names = ["input_ids", "input_mask", "segment_ids"],
+                    output_names = ["output_start_logits", "output_end_logits"],
+                    opset_version=11,
+                    dynamic_axes=({"input_ids": {0: "batch_size"}, "input_mask": {0: "batch_size"}, "segment_ids": {0: "batch_size"},
+                        "output_start_logits": {0: "batch_size"}, "output_end_logits": {0: "batch_size"}})
+                )
+                # torch.onnx.export(model,    # model being run
+                #     inputs,                 # model input (or a tuple for multiple inputs)
+                #     "model.onnx")
+                exit()
+
             outputs = model(**inputs)
 
         for i, feature_index in enumerate(feature_indices):
@@ -685,6 +703,12 @@ def main():
         action="store_true",
         help="Whether to use 16-bit (mixed) precision (through INTEL SPR CPU, AMP) instead of 32-bit",
     )
+    parser.add_argument(
+        "--export_onnx",
+        action="store_true",
+        help="Convert the model to onnx format, output ONNX model name: model.onnx",
+    )
+
     parser.add_argument("--server_ip", type=str, default="", help="Can be used for distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
 
@@ -722,6 +746,8 @@ def main():
     # Setup CUDA, GPU & distributed training
     if args.local_rank != -1 and args.bf16_amp == True:
         raise ValueError("bf16_amp is only supported for INTEL SPR CPU, AMP")
+    if args.export_onnx == True and args.do_eval == False:
+        raise ValueError("Export model to onnx. Please set --do_eval")
 
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
