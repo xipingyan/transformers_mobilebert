@@ -25,6 +25,7 @@ import timeit
 
 import numpy as np
 import torch
+import torch.amp as amp
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
@@ -107,8 +108,11 @@ def train(args, train_dataset, model, tokenizer):
         os.path.join(args.model_name_or_path, "scheduler.pt")
     ):
         # Load in optimizer and scheduler states
-        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
-        scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
+        cur_map_location=None
+        if args.local_rank == -1:
+            cur_map_location=torch.device('cpu')
+        optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt"), map_location=cur_map_location))
+        scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt"), map_location=cur_map_location))
 
     if args.fp16:
         try:
@@ -200,9 +204,15 @@ def train(args, train_dataset, model, tokenizer):
                         {"langs": (torch.ones(batch[0].shape, dtype=torch.int64) * args.lang_id).to(args.device)}
                     )
 
-            outputs = model(**inputs)
-            # model outputs are always tuple in transformers (see doc)
-            loss = outputs[0]
+            if args.bf16_amp:
+                with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                    outputs = model(**inputs)
+                    # model outputs are always tuple in transformers (see doc)
+                    loss = outputs[0]
+            else:
+                outputs = model(**inputs)
+                # model outputs are always tuple in transformers (see doc)
+                loss = outputs[0]
 
             if args.n_gpu > 1:
                 loss = loss.mean()  # mean() to average on multi-gpu parallel (not distributed) training
@@ -419,7 +429,10 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
     # Init features and dataset from cache if it exists
     if os.path.exists(cached_features_file) and not args.overwrite_cache:
         logger.info("Loading features from cached file %s", cached_features_file)
-        features_and_dataset = torch.load(cached_features_file)
+        if args.local_rank == -1:
+            features_and_dataset = torch.load(cached_features_file, map_location=torch.device('cpu'))
+        else:
+            features_and_dataset = torch.load(cached_features_file)
         features, dataset, examples = (
             features_and_dataset["features"],
             features_and_dataset["dataset"],
@@ -667,6 +680,11 @@ def main():
             "See details at https://nvidia.github.io/apex/amp.html"
         ),
     )
+    parser.add_argument(
+        "--bf16_amp",
+        action="store_true",
+        help="Whether to use 16-bit (mixed) precision (through INTEL SPR CPU, AMP) instead of 32-bit",
+    )
     parser.add_argument("--server_ip", type=str, default="", help="Can be used for distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="Can be used for distant debugging.")
 
@@ -702,6 +720,9 @@ def main():
         ptvsd.wait_for_attach()
 
     # Setup CUDA, GPU & distributed training
+    if args.local_rank != -1 and args.bf16_amp == True:
+        raise ValueError("bf16_amp is only supported for INTEL SPR CPU, AMP")
+
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
