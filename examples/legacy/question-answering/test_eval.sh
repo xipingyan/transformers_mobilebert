@@ -9,21 +9,36 @@
 # $ wget -O data/train-v1.1.json https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json
 # $ wget -O data/dev-v1.1.json https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json
 
+# Model from https://huggingface.co/csarron/mobilebert-uncased-squad-v2/tree/main
+# wget -O models/pytorch_model.bin https://huggingface.co/csarron/mobilebert-uncased-squad-v2/resolve/main/pytorch_model.bin
+# At least need: config.json, vocab.txt, tokenizer_config.json, pytorch_model.bin
+
 # source ./python-env/bin/activate
 # TRAIN_WORK_PATH=transformers/examples/legacy/question-answering
 # cd $TRAIN_WORK_PATH
-source ../../../../../python-env/bin/activate
+# source ../../../../../python-env/bin/activate
+source ./pythin-env/bin/activate
+
+# Setup ENV: https://github.com/xipingyan/transformers_mobilebert/tree/xp/train_mobilebert_v1#installation
+# pip install transformers
+# pip install torch
+# pip install tensorboard
 
 export SQUAD_DIR=`pwd`/data
-MODEL_BASE=/home/xiping/mydisk2_2T/mygithub/bugs/mobilebert_jira104177/mobilebert_v1
-Model_NV_FP32=$MODEL_BASE/checkpoint-3500
-Model_CPU_FP32=$MODEL_BASE/cpu_fp32/checkpoint-7000
-Model_CPU_BF16_AMP_SPR=$MODEL_BASE/cpu_bf16_spr/checkpoint-7000
+#=================================================
+# MODEL_BASE=/home/xiping/mydisk2_2T/mygithub/bugs/mobilebert_jira104177/mobilebert_v1
+# Model_NV_FP32=$MODEL_BASE/checkpoint-3500
+# Model_CPU_FP32=$MODEL_BASE/cpu_fp32/checkpoint-7000
+# Model_CPU_BF16_AMP_SPR=$MODEL_BASE/cpu_bf16_spr/checkpoint-7000
+# model_type="mobilebert"
+
+Model_Base=`pwd`/models
+model_type="csarron/mobilebert-uncased-squad-v2"
 
 # Test accuracy after training.
 python run_squad.py \
-  --model_type mobilebert \
-  --model_name_or_path $Model_CPU_FP32 \
+  --model_type $model_type \
+  --model_name_or_path $Model_Base \
   --do_eval \
   --do_lower_case \
   --local_rank -1 \
